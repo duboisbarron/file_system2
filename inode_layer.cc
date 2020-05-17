@@ -109,12 +109,27 @@ block_layer::alloc_block() {
      * hint2: read free_block(); remember to call pthread_mutex_unlock before all the returns
      */
 
-
     int first_data_block = IBLOCK(1023, sb.nblocks) + 1;
 
-    for(int id=first_data_block; id<sb.nblocks; id++){
+
+//
+//    printf("HELLO THERE LOOK AT HIS NUMBER: %d\n", first_data_block);
+//
+//
+//    printf("CALLING ALLOC BLOCK\n");
+//
+//    printf("first_data_block value is: %d\n", first_data_block);
+//    printf("sb.nblocks value is: %d\n", sb.nblocks);
+
+
+
+    for(int id=first_data_block; id<BLOCK_NUM; id++){
+
+//        printf("WITHIN THE FOR LOOP\n");
 
         char buf[BLOCK_SIZE];
+
+
         d->read_block(BBLOCK(id), buf);
 
         uint32_t bit_offset_in_block = id % BPB;
@@ -122,6 +137,7 @@ block_layer::alloc_block() {
         uint32_t bit_offset_in_byte = bit_offset_in_block % 8;
 
         char* byte = &((char*)buf)[byte_offset_in_block];
+
 
         if(*byte & ((char)1 << bit_offset_in_byte)){
             continue;
@@ -131,58 +147,14 @@ block_layer::alloc_block() {
             d->write_block(BBLOCK(id), buf);
             pthread_mutex_unlock(&bitmap_mutex);
             return id;
-
-
         }
 
     }
+
+    /* Your Part I code ends here. */
     pthread_mutex_unlock(&bitmap_mutex);
+    /* no free data block left */
     return -1;
-
-
-//    int first_data_block = IBLOCK(INODE_NUM, BLOCK_NUM) + 1;
-//
-//
-//    for (int id = first_data_block; id < BLOCK_NUM; id++) {
-//        char buf[BLOCK_SIZE];
-//        d->read_block(BBLOCK(id), buf);
-//
-//        /* suppose id=5001, we need to modify the 5001 th bit */
-//        /* which is the 5001 % 4096 = 905 th bit in the block*/
-//        uint32_t bit_offset_in_block = id % BPB;
-//        /* which lives in the 905 / 8 = 113 th byte in the block */
-//        uint32_t byte_offset_in_block = bit_offset_in_block / 8;
-//        /* and is the 905 % 8 = 1 st bit in this byte */
-//        uint32_t bit_offset_in_byte = bit_offset_in_block % 8;
-//
-//        /* You may need to learn the meaning of &= and << operators */
-//        char *byte = &((char *) buf)[byte_offset_in_block];
-//        /* (char)1 is (00000001)binary */
-//        /* (char)1 << 1 is (00000010)binary */
-//        /* ~((char)1 << 1) is (11111101)binary */
-//        /* &= makes the bit representing id to zero */
-////        *byte &= ~((char)1 << bit_offset_in_byte);
-//
-//
-//
-//        char *bit = &((char *) byte)[bit_offset_in_block];
-//
-//        if (*bit == '0') {
-//
-//            *byte |= ((char) 1 << bit_offset_in_byte);
-//            d->write_block(BBLOCK(id), buf);
-//            pthread_mutex_unlock(&bitmap_mutex);
-//            return id;
-//
-//        }
-//    }
-//
-//
-//
-//    /* Your Part I code ends here. */
-//    pthread_mutex_unlock(&bitmap_mutex);
-//    /* no free data block left */
-//    return 0;
 
 }
 
@@ -222,6 +194,8 @@ void
 inode_layer::read_file(uint32_t inum, char **buf_out, int *size)
 {
 
+    rwlocks[inum].reader_enter();
+
     printf("READING A FILE!!!\n");
 
     printf("FILE SIZE IS: %d\n", size);
@@ -237,6 +211,9 @@ inode_layer::read_file(uint32_t inum, char **buf_out, int *size)
         rwlocks[inum].reader_exit();
         return;
     }
+
+
+//    printf("INODE NUMBER IS: %d\n", inum);
 
     /* modify the access time of inode inum */
     ino->atime = time(NULL);
@@ -262,35 +239,24 @@ inode_layer::read_file(uint32_t inum, char **buf_out, int *size)
     int indirect_index = 0;
 
 
+    char indirect_block[512];
+    bm->read_block(ino->blocks[8], indirect_block);
+    int *ptr = (int *) indirect_block;
+
+
+
     while(remaining_bytes_to_be_read > 0){
 
-
-
 //        can we read a full block?
-//        can we read a full block?
-//        can we read a full block?
-//        can we read a full block?
-//        can we read a full block?
-//        can we read a full block?
-        if(remaining_bytes_to_be_read > BLOCK_SIZE){
+        if(remaining_bytes_to_be_read >= BLOCK_SIZE){
             // we can read a full block
 
-            if(num_bytes_already_read > (8*BLOCK_SIZE)){
+            if(num_bytes_already_read >= (8*BLOCK_SIZE)){
                 // we have to read a full block within the INDIRECT section
-
-                char indirect_block[512];
-                bm->read_block(ino->blocks[8], indirect_block);
-
-
-                int *ptr = (int*)indirect_block;
-//                address associated with block to be read is at ptr[indirect_index]
-//                  pull that address out and read that data into our buffer
                 char full_indirect_buffer[512];
+
                 bm->read_block(ptr[indirect_index], full_indirect_buffer);
-
-//                copy all that data over to the buff out
                 memcpy(buf + (index * BLOCK_SIZE), full_indirect_buffer, BLOCK_SIZE);
-
 
                 num_bytes_already_read += BLOCK_SIZE;
                 remaining_bytes_to_be_read -= BLOCK_SIZE;
@@ -298,13 +264,13 @@ inode_layer::read_file(uint32_t inum, char **buf_out, int *size)
                 indirect_index += 1;
 
 
-
-
             } else {
                 // we are simply reading a full direct block
 
                 char full_direct_buffer[512];
+
                 bm->read_block(ino->blocks[index], full_direct_buffer);
+
                 memcpy(buf + (index * BLOCK_SIZE), full_direct_buffer, BLOCK_SIZE);
 
                 num_bytes_already_read += BLOCK_SIZE;
@@ -320,27 +286,8 @@ inode_layer::read_file(uint32_t inum, char **buf_out, int *size)
 //            we can only read part of a block
 //            we can only read part of a block
 //            we can only read part of a block
-//            we can only read part of a block
-//            we can only read part of a block
-//            we can only read part of a block
-//            we can only read part of a block
-//            we can only read part of a block
-//            we can only read part of a block
-//            we can only read part of a block
 
-
-//            printf("READING ONLY PART OF A BLOCK\n");
-
-//            printf("INODE WE ARE READING FROM IS: %d\n", inum);
-
-            if(num_bytes_already_read > (8*BLOCK_SIZE)){
-                // we are reading part of a block addressed within the INdirect Section
-
-                char indirect_block[512];
-                bm->read_block(ino->blocks[8], indirect_block);
-                int *ptr = (int*)indirect_block;
-
-
+            if(num_bytes_already_read >= (8*BLOCK_SIZE)){
 //                address associated with block to be read is at ptr[indirect_index]
 //                  pull that address out and read that data into our buffer
                 char partial_indirect_buffer[512];
@@ -365,20 +312,11 @@ inode_layer::read_file(uint32_t inum, char **buf_out, int *size)
                 bm->read_block(ino->blocks[index], partial_direct_buffer);
 
                 memcpy(buf + (index * BLOCK_SIZE), partial_direct_buffer, remaining_bytes_to_be_read);
-//                printf("bytes read: %s\n", buf);
-
-//                printf("INO");
-
-
-//                printf("remaining bytes to be read: %d\n", remaining_bytes_to_be_read);
-
 
                 num_bytes_already_read += remaining_bytes_to_be_read;
                 remaining_bytes_to_be_read -= remaining_bytes_to_be_read;
 
 //                printf("remaining bytes to be read: %d\n", remaining_bytes_to_be_read);
-
-
 
             }
 
@@ -388,18 +326,19 @@ inode_layer::read_file(uint32_t inum, char **buf_out, int *size)
 // end while
     }
 
-
-
     /* Your Part I code ends here. */
     *buf_out = buf;
     free(ino);
+    rwlocks[inum].reader_exit();
+
+
 }
 
 void
 inode_layer::write_file(uint32_t inum, const char *buf, int size)
 {
-//    printf("HELLO THERE LOOK AT THE BUFFER %s\n", buf);
-//    printf("HELLO THERE LOOK AT THE SIZE %d\n", size);
+
+    rwlocks[inum].writer_enter();
     /* check parameter */
     if(size < 0 || (uint32_t)size > BLOCK_SIZE * MAXFILE){
         printf("\tim: error! size negative or too large.\n");
@@ -427,7 +366,6 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
     for(int x = 0; x < NDIRECT; x++){
         bm->free_block(ino->blocks[x]);
     }
-//    int indirect_size = size % (BLOCK_SIZE * 8);
 
     char indirect_block[512];
     bm->read_block(ino->blocks[8], indirect_block);
@@ -436,6 +374,12 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
     for(int x; x < 128; x++){
         bm->free_block(ptr[x]);
     }
+
+    // TODO:
+    // TODO:
+    // TODO:
+    bm->free_block(ino->blocks[8]);
+
 //    DONE FREEING ALL THE BLOCKS
 
 //    printf("FINISHED FREEING ALL THE BLOCKS\n");
@@ -446,29 +390,29 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
     int index = 0;
     int indirect_index = 0;
 
+    ino->size = 0;
+
+
+    bool need_to_overwrite_indirect = false;
+    char final_indirect_block[512];
+
+
     while (remaining_bytes_to_write > 0){
-
-
 //        can we write a full block?
-        if(remaining_bytes_to_write > BLOCK_SIZE){
+        if(remaining_bytes_to_write >= BLOCK_SIZE){
 //            we can write a full block!
-
-
 //          can we write this full block in the Direct section?
             if(num_bytes_already_written < (8 * BLOCK_SIZE)){
-//                write a block in the direct section!!
+//                FULL BLOCK DIRECT SECTION
+//                FULL BLOCK DIRECT SECTION
+//                FULL BLOCK DIRECT SECTION
+//                FULL BLOCK DIRECT SECTION
+//                FULL BLOCK DIRECT SECTION
 
                 char full_direct_buffer[512];
                 memcpy(full_direct_buffer, buf + (index * BLOCK_SIZE), BLOCK_SIZE);
-                // read 512 bytes from buffer into the full_direct_buffer
-
                 // now need to allocate a new block!
                 int block_id = bm->alloc_block();
-
-
-
-
-
                 // new stuff
                 ino->blocks[index] = block_id;
                 // write that block to memory
@@ -479,19 +423,24 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
                 num_bytes_already_written += BLOCK_SIZE;
                 remaining_bytes_to_write -= BLOCK_SIZE;
 
+                ino->size += BLOCK_SIZE;
+
+
 
             } else {
-//                write a block in the indirect section
-//                going into the indirect section
+//              FULL BLOCK INDIRECT SECTION
+//              FULL BLOCK INDIRECT SECTION
+//              FULL BLOCK INDIRECT SECTION
+//              FULL BLOCK INDIRECT SECTION
+//              FULL BLOCK INDIRECT SECTION
+//              FULL BLOCK INDIRECT SECTION
+//              FULL BLOCK INDIRECT SECTION
 
+                need_to_overwrite_indirect = true;
 
-
+//                printf("WRITING A FULL BLOCK IN THE INDIRECT SECION\n");
                 char full_indirect_buffer[512];
-                memcpy(full_indirect_buffer, buf + (index*BLOCK_SIZE), BLOCK_SIZE);
-                // copy 512 bytes of the buf into our full_indirect_buffer
-
-
-                // allocate a new block!
+                memcpy(full_indirect_buffer, buf + (index*BLOCK_SIZE), 512);
 
                 int block_id = bm->alloc_block();
 
@@ -499,20 +448,11 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
                 // write this block to memory
                 bm->write_block(block_id, full_indirect_buffer);
 
-
-                // need to store this blocks address into the indirect block itself
-
-                // get the address of the block_id pointer
-//                int *ptr = &block_id;
-
-                // store this pointer within the indirect block
-                memcpy(&ino->blocks[8] + (indirect_index * 4), &block_id, 4);
-
-
+                memcpy(final_indirect_block + (indirect_index * sizeof(uint32_t)), &block_id, sizeof(uint32_t));
 
                 remaining_bytes_to_write -= BLOCK_SIZE;
                 num_bytes_already_written += BLOCK_SIZE;
-
+                ino->size += BLOCK_SIZE;
                 indirect_index += 1;
 
             }
@@ -532,42 +472,32 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
                 char partial_direct_buffer[512];
                 memcpy(partial_direct_buffer, buf + (index * BLOCK_SIZE), remaining_bytes_to_write);
                 // read a partial number of bytes into the partial_direct_buffer
-
-
                 // allocate a new block
                 int block_id = bm->alloc_block();
 
-
-//                printf("HELLO THERE BLOCK ID WE ARE USING IS: %d", block_id);
-
-
-                // write this block to memory
-//                TODO: THIS COULD BE WRONG
-//                bm->write_block(block_id, partial_direct_buffer);
-
-
-                // new stuff
                 ino->blocks[index] = block_id;
                 bm->write_block(block_id, partial_direct_buffer);
-//                memcpy(&)
 
-//                memcpy(ino->blocks[index])
-
-
-
-                // increment / decrement our loop variables appropriately
 
                 num_bytes_already_written += remaining_bytes_to_write;
                 remaining_bytes_to_write -= remaining_bytes_to_write;
+
+                ino->size += remaining_bytes_to_write;
+
 
 
 
             } else {
 //                write a part of a block in the indirect section
+
+                need_to_overwrite_indirect = true;
+
                 char partial_indirect_buffer[512];
                 memcpy(partial_indirect_buffer, buf + (index * BLOCK_SIZE), remaining_bytes_to_write);
 
                 //allocate a new block!
+
+//                printf("MAKING CALL TO ALLOC BLOCK IN THE INDIRECT SECTION!!! \n");
                 int block_id = bm->alloc_block();
 
 
@@ -575,31 +505,39 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
                 bm->write_block(block_id, partial_indirect_buffer);
                 // wrote this block to memory
 
-
-
-                // need to store the pointer to this block within the indirect block
-                // get the address of the block_id pointer
-//                int *ptr = &block_id;
-
-                // store this pointer within the indirect block
-                memcpy(&ino->blocks[8] + (indirect_index * 4), &block_id, 4);
-
+                memcpy(final_indirect_block + (indirect_index * sizeof(uint32_t)), &block_id, sizeof(uint32_t));
+                // END OLD IDEA
 
                 remaining_bytes_to_write -= remaining_bytes_to_write;
                 num_bytes_already_written += remaining_bytes_to_write;
                 indirect_index += 1;
 
+                ino->size += remaining_bytes_to_write;
             }
 
         }
 
+        index += 1;
+//        ino->size = size;
     }
 
+    if(need_to_overwrite_indirect == true){
+        ino->blocks[8] = bm->alloc_block();
+        bm->write_block(ino->blocks[8], final_indirect_block);
+    }
+
+
     ino->size = size;
+
+
 
     /* Your Part I code ends here. */
     put_inode(inum, ino);
     free(ino);
+
+    rwlocks[inum].writer_exit();
+
+
 }
 
 
@@ -616,6 +554,13 @@ inode_layer::free_inode(uint32_t inum)
      */
 
     /* Your Part I code ends here. */
+
+
+    struct inode* ino = get_inode(inum);
+    ino->type = 0;
+    put_inode(inum, ino);
+    free(ino);
+
 }
 
 
@@ -631,7 +576,37 @@ inode_layer::remove_file(uint32_t inum)
      * Your Part I code goes here.
      * hint1: first, free all data blocks of inode inum (use bm->free_block function); second, free the inode
      */
-    
+
+
+    int current_size = ino->size;
+
+    for(int x = 0; x < 8; x++){
+        bm->free_block(ino->blocks[x]);
+        current_size -= BLOCK_SIZE;
+    }
+
+    int num_indirect_blocks = (current_size/BLOCK_SIZE) + 1;
+    if (current_size > 0){
+        char indirect_buffer[512];
+        bm->read_block(ino->blocks[8], indirect_buffer);
+
+        int *ptr = (int *) indirect_buffer;
+
+        for(int x = 0; x < num_indirect_blocks; x++){
+
+            bm->free_block(ptr[x]);
+
+        }
+
+        bm->free_block(ino->blocks[8]);
+
+
+
+    }
+
+
+    inode_layer::free_inode(inum);
+
 
     /* Your Part I code ends here. */
     free(ino);
