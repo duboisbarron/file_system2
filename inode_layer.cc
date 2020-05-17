@@ -230,100 +230,40 @@ inode_layer::read_file(uint32_t inum, char **buf_out, int *size)
 
 
     int remaining_bytes_to_be_read = *size;
-
     int num_bytes_already_read = 0;
-//    printf("total bytes to be read is: %d\n", *size);
-
-
-    int index = 0;
-    int indirect_index = 0;
-
 
     char indirect_block[512];
     bm->read_block(ino->blocks[8], indirect_block);
     int *ptr = (int *) indirect_block;
 
-
+    int index = 0;
+    int indirect_index = 0;
 
     while(remaining_bytes_to_be_read > 0){
 
-//        can we read a full block?
-        if(remaining_bytes_to_be_read >= BLOCK_SIZE){
-            // we can read a full block
+        if(num_bytes_already_read < (8*BLOCK_SIZE)){
+            // DIRECT SECTION
+            char full_direct_buffer[512];
+            bm->read_block(ino->blocks[index], full_direct_buffer);
+            memcpy(buf + (index * BLOCK_SIZE), full_direct_buffer, MIN(BLOCK_SIZE, remaining_bytes_to_be_read));
 
-            if(num_bytes_already_read >= (8*BLOCK_SIZE)){
-                // we have to read a full block within the INDIRECT section
-                char full_indirect_buffer[512];
-
-                bm->read_block(ptr[indirect_index], full_indirect_buffer);
-                memcpy(buf + (index * BLOCK_SIZE), full_indirect_buffer, BLOCK_SIZE);
-
-                num_bytes_already_read += BLOCK_SIZE;
-                remaining_bytes_to_be_read -= BLOCK_SIZE;
-
-                indirect_index += 1;
+            num_bytes_already_read += MIN(BLOCK_SIZE, remaining_bytes_to_be_read);
+            remaining_bytes_to_be_read -= MIN(BLOCK_SIZE, remaining_bytes_to_be_read);
 
 
-            } else {
-                // we are simply reading a full direct block
-
-                char full_direct_buffer[512];
-
-                bm->read_block(ino->blocks[index], full_direct_buffer);
-
-                memcpy(buf + (index * BLOCK_SIZE), full_direct_buffer, BLOCK_SIZE);
-
-                num_bytes_already_read += BLOCK_SIZE;
-                remaining_bytes_to_be_read -= BLOCK_SIZE;
+        } else {
+            // INDIRECT SECTION
+            char full_indirect_buffer[512];
+            bm->read_block(ptr[indirect_index], full_indirect_buffer);
+            memcpy(buf + (index * BLOCK_SIZE), full_indirect_buffer, MIN(BLOCK_SIZE, remaining_bytes_to_be_read));
 
 
-            }
-
-
-
-        } else{
-//            we can only read part of a block
-//            we can only read part of a block
-//            we can only read part of a block
-//            we can only read part of a block
-
-            if(num_bytes_already_read >= (8*BLOCK_SIZE)){
-//                address associated with block to be read is at ptr[indirect_index]
-//                  pull that address out and read that data into our buffer
-                char partial_indirect_buffer[512];
-                bm->read_block(ptr[indirect_index], partial_indirect_buffer);
-
-//                copy ONLY the data we want into the buff stuff
-                memcpy(buf + (index * BLOCK_SIZE), partial_indirect_buffer, remaining_bytes_to_be_read);
-
-
-                num_bytes_already_read += remaining_bytes_to_be_read;
-                remaining_bytes_to_be_read -= remaining_bytes_to_be_read;
-
-                indirect_index += 1;
-
-
-            } else {
-                // we are reading part of a block from a direct block
-//                read the entire block within the direct block section
-
-//                printf("READING FROM PARTIAL BLOCK IN DIRECT SECTION\n");
-                char partial_direct_buffer[512];
-                bm->read_block(ino->blocks[index], partial_direct_buffer);
-
-                memcpy(buf + (index * BLOCK_SIZE), partial_direct_buffer, remaining_bytes_to_be_read);
-
-                num_bytes_already_read += remaining_bytes_to_be_read;
-                remaining_bytes_to_be_read -= remaining_bytes_to_be_read;
-
-//                printf("remaining bytes to be read: %d\n", remaining_bytes_to_be_read);
-
-            }
-
+            num_bytes_already_read += MIN(BLOCK_SIZE, remaining_bytes_to_be_read);
+            remaining_bytes_to_be_read -= MIN(BLOCK_SIZE, remaining_bytes_to_be_read);
+            indirect_index += 1;
         }
 
         index += 1;
-// end while
     }
 
     /* Your Part I code ends here. */
@@ -386,151 +326,51 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
 
     int remaining_bytes_to_write = size;
     int num_bytes_already_written = 0;
-
-    int index = 0;
-    int indirect_index = 0;
-
-    ino->size = 0;
-
-
     bool need_to_overwrite_indirect = false;
     char final_indirect_block[512];
 
 
+    int index = 0;
+    int indirect_index = 0;
+
     while (remaining_bytes_to_write > 0){
-//        can we write a full block?
-        if(remaining_bytes_to_write >= BLOCK_SIZE){
-//            we can write a full block!
-//          can we write this full block in the Direct section?
-            if(num_bytes_already_written < (8 * BLOCK_SIZE)){
-//                FULL BLOCK DIRECT SECTION
-//                FULL BLOCK DIRECT SECTION
-//                FULL BLOCK DIRECT SECTION
-//                FULL BLOCK DIRECT SECTION
-//                FULL BLOCK DIRECT SECTION
 
-                char full_direct_buffer[512];
-                memcpy(full_direct_buffer, buf + (index * BLOCK_SIZE), BLOCK_SIZE);
-                // now need to allocate a new block!
-                int block_id = bm->alloc_block();
-                // new stuff
-                ino->blocks[index] = block_id;
-                // write that block to memory
-                bm->write_block(block_id, full_direct_buffer);
+        if(num_bytes_already_written < (8 * BLOCK_SIZE)){
+            // we are in the DIRECT SECTION
+
+            char direct_buffer[512];
+
+            memcpy(direct_buffer, buf + (index * BLOCK_SIZE), MIN(BLOCK_SIZE, remaining_bytes_to_write));
+            int block_id = bm->alloc_block();
+            ino->blocks[index] = block_id;
+            bm->write_block(block_id, direct_buffer);
 
 
-                // increment / decrement our while loop variables appropriately
-                num_bytes_already_written += BLOCK_SIZE;
-                remaining_bytes_to_write -= BLOCK_SIZE;
+            num_bytes_already_written += MIN(BLOCK_SIZE, remaining_bytes_to_write);
+            remaining_bytes_to_write -= MIN(BLOCK_SIZE, remaining_bytes_to_write);
 
-                ino->size += BLOCK_SIZE;
+        } else {
+            need_to_overwrite_indirect = true;
 
+            char indirect_buffer[512];
+            memcpy(indirect_buffer, buf + (index * BLOCK_SIZE), MIN(BLOCK_SIZE, remaining_bytes_to_write));
+            int block_id = bm->alloc_block();
+            bm->write_block(block_id, indirect_buffer);
+            memcpy(final_indirect_block + (indirect_index * sizeof(uint32_t)), &block_id, sizeof(uint32_t));
 
-
-            } else {
-//              FULL BLOCK INDIRECT SECTION
-//              FULL BLOCK INDIRECT SECTION
-//              FULL BLOCK INDIRECT SECTION
-//              FULL BLOCK INDIRECT SECTION
-//              FULL BLOCK INDIRECT SECTION
-//              FULL BLOCK INDIRECT SECTION
-//              FULL BLOCK INDIRECT SECTION
-
-                need_to_overwrite_indirect = true;
-
-//                printf("WRITING A FULL BLOCK IN THE INDIRECT SECION\n");
-                char full_indirect_buffer[512];
-                memcpy(full_indirect_buffer, buf + (index*BLOCK_SIZE), 512);
-
-                int block_id = bm->alloc_block();
-
-
-                // write this block to memory
-                bm->write_block(block_id, full_indirect_buffer);
-
-                memcpy(final_indirect_block + (indirect_index * sizeof(uint32_t)), &block_id, sizeof(uint32_t));
-
-                remaining_bytes_to_write -= BLOCK_SIZE;
-                num_bytes_already_written += BLOCK_SIZE;
-                ino->size += BLOCK_SIZE;
-                indirect_index += 1;
-
-            }
-
-
-        } else{
-//            we can NOT write a full block, write only part of a block!
-
-
-//          can we write this partial block in the Direct section?
-            if(num_bytes_already_written < (8 * BLOCK_SIZE)){
-
-//                printf("WRITING A PARTIAL BLOCK IN THE DIRECT SECTION\n");
-//                write a block in the direct section!!
-
-
-                char partial_direct_buffer[512];
-                memcpy(partial_direct_buffer, buf + (index * BLOCK_SIZE), remaining_bytes_to_write);
-                // read a partial number of bytes into the partial_direct_buffer
-                // allocate a new block
-                int block_id = bm->alloc_block();
-
-                ino->blocks[index] = block_id;
-                bm->write_block(block_id, partial_direct_buffer);
-
-
-                num_bytes_already_written += remaining_bytes_to_write;
-                remaining_bytes_to_write -= remaining_bytes_to_write;
-
-                ino->size += remaining_bytes_to_write;
-
-
-
-
-            } else {
-//                write a part of a block in the indirect section
-
-                need_to_overwrite_indirect = true;
-
-                char partial_indirect_buffer[512];
-                memcpy(partial_indirect_buffer, buf + (index * BLOCK_SIZE), remaining_bytes_to_write);
-
-                //allocate a new block!
-
-//                printf("MAKING CALL TO ALLOC BLOCK IN THE INDIRECT SECTION!!! \n");
-                int block_id = bm->alloc_block();
-
-
-                // TODO: could be wrong to write_block here
-                bm->write_block(block_id, partial_indirect_buffer);
-                // wrote this block to memory
-
-                memcpy(final_indirect_block + (indirect_index * sizeof(uint32_t)), &block_id, sizeof(uint32_t));
-                // END OLD IDEA
-
-                remaining_bytes_to_write -= remaining_bytes_to_write;
-                num_bytes_already_written += remaining_bytes_to_write;
-                indirect_index += 1;
-
-                ino->size += remaining_bytes_to_write;
-            }
+            remaining_bytes_to_write -= MIN(BLOCK_SIZE, remaining_bytes_to_write);
+            num_bytes_already_written += MIN(BLOCK_SIZE, remaining_bytes_to_write);
+            indirect_index += 1;
 
         }
-
         index += 1;
-//        ino->size = size;
     }
-
     if(need_to_overwrite_indirect == true){
         ino->blocks[8] = bm->alloc_block();
         bm->write_block(ino->blocks[8], final_indirect_block);
     }
 
-
     ino->size = size;
-
-
-
     /* Your Part I code ends here. */
     put_inode(inum, ino);
     free(ino);
