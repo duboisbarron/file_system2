@@ -301,24 +301,22 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
      * You need to consider the situation when "size" parameter is larger or smaller than the current size of inode inum
      */
 
-
+// TODO:
+// TODO:
+// TODO:
+// TODO:
 //    FREEING ALL THE BLOCKS
     for(int x = 0; x < NDIRECT; x++){
         bm->free_block(ino->blocks[x]);
     }
+//    char indirect_block[512];
+//    bm->read_block(ino->blocks[8], indirect_block);
+//    int *ptr = (int*)indirect_block;
+//    for(int x; x < 128; x++){
+//        bm->free_block(ptr[x]);
+//    }
 
-    char indirect_block[512];
-    bm->read_block(ino->blocks[8], indirect_block);
-    int *ptr = (int*)indirect_block;
-
-    for(int x; x < 128; x++){
-        bm->free_block(ptr[x]);
-    }
-
-    // TODO:
-    // TODO:
-    // TODO:
-    bm->free_block(ino->blocks[8]);
+//    bm->free_block(ino->blocks[8]);
 
 //    DONE FREEING ALL THE BLOCKS
 
@@ -333,6 +331,10 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
     int index = 0;
     int indirect_index = 0;
 
+
+    int old_inode_size = ino->size;
+
+    bool already_allocated_indirect = false;
     while (remaining_bytes_to_write > 0){
 
         if(num_bytes_already_written < (8 * BLOCK_SIZE)){
@@ -342,6 +344,9 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
 
             memcpy(direct_buffer, buf + (index * BLOCK_SIZE), MIN(BLOCK_SIZE, remaining_bytes_to_write));
             int block_id = bm->alloc_block();
+
+
+            bm->free_block(ino->blocks[index]);
             ino->blocks[index] = block_id;
             bm->write_block(block_id, direct_buffer);
 
@@ -350,24 +355,86 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
             remaining_bytes_to_write -= MIN(BLOCK_SIZE, remaining_bytes_to_write);
 
         } else {
+            // in the indirect section
             need_to_overwrite_indirect = true;
 
-            char indirect_buffer[512];
-            memcpy(indirect_buffer, buf + (index * BLOCK_SIZE), MIN(BLOCK_SIZE, remaining_bytes_to_write));
-            int block_id = bm->alloc_block();
-            bm->write_block(block_id, indirect_buffer);
-            memcpy(final_indirect_block + (indirect_index * sizeof(uint32_t)), &block_id, sizeof(uint32_t));
 
-            remaining_bytes_to_write -= MIN(BLOCK_SIZE, remaining_bytes_to_write);
-            num_bytes_already_written += MIN(BLOCK_SIZE, remaining_bytes_to_write);
-            indirect_index += 1;
+            if (size >= old_inode_size){
+                // we are in the indirect section already, has ino->blocks[8] been made?
+
+                if(old_inode_size <= (8*BLOCK_SIZE)){
+                    // need to allocate ino->blocks[8]
+                    if(already_allocated_indirect == false) {
+                        int indirect_block_id = bm->alloc_block();
+                        ino->blocks[8] = indirect_block_id;
+                        already_allocated_indirect = true;
+                    }
+                    //make sure dont do this every iteration
+                }
+
+                char indirect_buffer[512];
+
+                memcpy(indirect_buffer, buf + (index * BLOCK_SIZE), MIN(BLOCK_SIZE, remaining_bytes_to_write));
+
+                int block_id = bm->alloc_block();
+
+                bm->write_block(block_id, indirect_buffer);
+                memcpy(final_indirect_block + (indirect_index * sizeof(uint32_t)), &block_id, sizeof(uint32_t));
+
+                remaining_bytes_to_write -= MIN(BLOCK_SIZE, remaining_bytes_to_write);
+                num_bytes_already_written += MIN(BLOCK_SIZE, remaining_bytes_to_write);
+                indirect_index += 1;
+
+            } else {
+                char indirect_block[512];
+                bm->read_block(ino->blocks[8], indirect_block);
+                int *ptr = (int*)indirect_block;
+
+
+                char temp_buffer[512];
+                memcpy(temp_buffer, buf + (index * BLOCK_SIZE), MIN(BLOCK_SIZE, remaining_bytes_to_write));
+
+
+                bm->write_block(ptr[indirect_index], temp_buffer);
+                memcpy(final_indirect_block + (indirect_index * sizeof(uint32_t)), &ptr[indirect_index], sizeof(uint32_t));
+                remaining_bytes_to_write -= MIN(BLOCK_SIZE, remaining_bytes_to_write);
+                num_bytes_already_written += MIN(BLOCK_SIZE, remaining_bytes_to_write);
+
+
+                indirect_index += 1;
+            }
+
 
         }
         index += 1;
     }
+
+    //free old indirect blocks
+
+if(need_to_overwrite_indirect && (size < old_inode_size)) {
+    char indirect_block[512];
+    bm->read_block(ino->blocks[8], indirect_block);
+    int *ptr = (int *) indirect_block;
+
+
+    int number_to_free = ((old_inode_size - size) / BLOCK_SIZE) + 1;
+    int i = 0;
+    while (i < number_to_free) {
+        bm->free_block(ptr[indirect_index]);
+        indirect_index += 1;
+        i += 1;
+    }
+
+}
+
     if(need_to_overwrite_indirect == true){
-        ino->blocks[8] = bm->alloc_block();
+
         bm->write_block(ino->blocks[8], final_indirect_block);
+
+    }
+
+    if(size <= (8* BLOCK_SIZE)){
+        bm->free_block(ino->blocks[8]);
     }
 
     ino->size = size;
