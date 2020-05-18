@@ -325,6 +325,9 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
     int remaining_bytes_to_write = size;
     int num_bytes_already_written = 0;
     bool need_to_overwrite_indirect = false;
+
+
+
     char final_indirect_block[512];
 
 
@@ -351,8 +354,6 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
             bm->write_block(block_id, direct_buffer);
 
 
-            num_bytes_already_written += MIN(BLOCK_SIZE, remaining_bytes_to_write);
-            remaining_bytes_to_write -= MIN(BLOCK_SIZE, remaining_bytes_to_write);
 
         } else {
             // in the indirect section
@@ -370,22 +371,54 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
                         already_allocated_indirect = true;
                     }
                     //make sure dont do this every iteration
+
+                    char indirect_buffer[512];
+                    memcpy(indirect_buffer, buf + (index * BLOCK_SIZE), MIN(BLOCK_SIZE, remaining_bytes_to_write));
+
+                    int block_id = bm->alloc_block();
+                    bm->write_block(block_id, indirect_buffer);
+                    memcpy(final_indirect_block + (indirect_index * sizeof(uint32_t)), &block_id, sizeof(uint32_t));
+
+
+
+
+
+                } else {
+                    // there is an indirect section
+                    // just replace the block
+
+
+                    if(num_bytes_already_written >= old_inode_size){
+                        char indirect_buffer[512];
+                        memcpy(indirect_buffer, buf + (index * BLOCK_SIZE), MIN(BLOCK_SIZE, remaining_bytes_to_write));
+
+                        int block_id = bm->alloc_block();
+                        bm->write_block(block_id, indirect_buffer);
+                        memcpy(final_indirect_block + (indirect_index * sizeof(uint32_t)), &block_id, sizeof(uint32_t));
+
+
+
+                    } else{
+
+                        //reuse the old block
+
+                        char indirect_block[512];
+                        bm->read_block(ino->blocks[8], indirect_block);
+                        int *ptr = (int*)indirect_block;
+
+                        char temp_buffer[512];
+                        memcpy(temp_buffer, buf + (index * BLOCK_SIZE), MIN(BLOCK_SIZE, remaining_bytes_to_write));
+
+                        bm->write_block(ptr[indirect_index], temp_buffer);
+                        memcpy(final_indirect_block + (indirect_index * sizeof(uint32_t)), &ptr[indirect_index], sizeof(uint32_t));
+
+                    }
+
                 }
 
-                char indirect_buffer[512];
-
-                memcpy(indirect_buffer, buf + (index * BLOCK_SIZE), MIN(BLOCK_SIZE, remaining_bytes_to_write));
-
-                int block_id = bm->alloc_block();
-
-                bm->write_block(block_id, indirect_buffer);
-                memcpy(final_indirect_block + (indirect_index * sizeof(uint32_t)), &block_id, sizeof(uint32_t));
-
-                remaining_bytes_to_write -= MIN(BLOCK_SIZE, remaining_bytes_to_write);
-                num_bytes_already_written += MIN(BLOCK_SIZE, remaining_bytes_to_write);
-                indirect_index += 1;
-
             } else {
+
+
                 char indirect_block[512];
                 bm->read_block(ino->blocks[8], indirect_block);
                 int *ptr = (int*)indirect_block;
@@ -393,39 +426,37 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
 
                 char temp_buffer[512];
                 memcpy(temp_buffer, buf + (index * BLOCK_SIZE), MIN(BLOCK_SIZE, remaining_bytes_to_write));
-
-
                 bm->write_block(ptr[indirect_index], temp_buffer);
                 memcpy(final_indirect_block + (indirect_index * sizeof(uint32_t)), &ptr[indirect_index], sizeof(uint32_t));
-                remaining_bytes_to_write -= MIN(BLOCK_SIZE, remaining_bytes_to_write);
-                num_bytes_already_written += MIN(BLOCK_SIZE, remaining_bytes_to_write);
 
 
-                indirect_index += 1;
             }
 
-
+            indirect_index += 1;
         }
+
+        remaining_bytes_to_write -= MIN(BLOCK_SIZE, remaining_bytes_to_write);
+        num_bytes_already_written += MIN(BLOCK_SIZE, remaining_bytes_to_write);
         index += 1;
     }
 
     //free old indirect blocks
 
-if(need_to_overwrite_indirect && (size < old_inode_size)) {
-    char indirect_block[512];
-    bm->read_block(ino->blocks[8], indirect_block);
-    int *ptr = (int *) indirect_block;
+    if(need_to_overwrite_indirect && (size < old_inode_size)) {
+        char indirect_block[512];
+        bm->read_block(ino->blocks[8], indirect_block);
+        int *ptr = (int *) indirect_block;
 
 
-    int number_to_free = ((old_inode_size - size) / BLOCK_SIZE) + 1;
-    int i = 0;
-    while (i < number_to_free) {
-        bm->free_block(ptr[indirect_index]);
-        indirect_index += 1;
-        i += 1;
+        int number_to_free = (old_inode_size - size);
+
+        while (number_to_free > 0) {
+            bm->free_block(ptr[indirect_index]);
+            indirect_index += 1;
+            number_to_free -= BLOCK_SIZE;
+        }
+
     }
-
-}
 
     if(need_to_overwrite_indirect == true){
 
