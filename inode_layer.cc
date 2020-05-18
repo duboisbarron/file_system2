@@ -195,10 +195,6 @@ inode_layer::read_file(uint32_t inum, char **buf_out, int *size)
 {
 
     rwlocks[inum].reader_enter();
-
-    printf("READING A FILE!!!\n");
-
-    printf("FILE SIZE IS: %d\n", size);
     /* check parameter */
     if(buf_out == NULL || size == NULL) {
         rwlocks[inum].reader_exit();
@@ -247,8 +243,7 @@ inode_layer::read_file(uint32_t inum, char **buf_out, int *size)
             bm->read_block(ino->blocks[index], full_direct_buffer);
             memcpy(buf + (index * BLOCK_SIZE), full_direct_buffer, MIN(BLOCK_SIZE, remaining_bytes_to_be_read));
 
-            num_bytes_already_read += MIN(BLOCK_SIZE, remaining_bytes_to_be_read);
-            remaining_bytes_to_be_read -= MIN(BLOCK_SIZE, remaining_bytes_to_be_read);
+
 
 
         } else {
@@ -257,12 +252,13 @@ inode_layer::read_file(uint32_t inum, char **buf_out, int *size)
             bm->read_block(ptr[indirect_index], full_indirect_buffer);
             memcpy(buf + (index * BLOCK_SIZE), full_indirect_buffer, MIN(BLOCK_SIZE, remaining_bytes_to_be_read));
 
-
-            num_bytes_already_read += MIN(BLOCK_SIZE, remaining_bytes_to_be_read);
-            remaining_bytes_to_be_read -= MIN(BLOCK_SIZE, remaining_bytes_to_be_read);
             indirect_index += 1;
+
+
         }
 
+        num_bytes_already_read += MIN(BLOCK_SIZE, remaining_bytes_to_be_read);
+        remaining_bytes_to_be_read -= MIN(BLOCK_SIZE, remaining_bytes_to_be_read);
         index += 1;
     }
 
@@ -306,7 +302,7 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
 // TODO:
 // TODO:
 //    FREEING ALL THE BLOCKS
-    for(int x = 0; x < NDIRECT; x++){
+    for(int x = 0; x < 8; x++){
         bm->free_block(ino->blocks[x]);
     }
 //    char indirect_block[512];
@@ -338,18 +334,16 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
     int old_inode_size = ino->size;
 
     bool already_allocated_indirect = false;
+
     while (remaining_bytes_to_write > 0){
 
         if(num_bytes_already_written < (8 * BLOCK_SIZE)){
             // we are in the DIRECT SECTION
 
             char direct_buffer[512];
-
             memcpy(direct_buffer, buf + (index * BLOCK_SIZE), MIN(BLOCK_SIZE, remaining_bytes_to_write));
             int block_id = bm->alloc_block();
 
-
-            bm->free_block(ino->blocks[index]);
             ino->blocks[index] = block_id;
             bm->write_block(block_id, direct_buffer);
 
