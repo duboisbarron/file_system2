@@ -16,18 +16,15 @@ inode_layer::alloc_inode(uint32_t type)
      */
 
 
-    int where_to_alloc = NULL;
+    int where_to_alloc = 0;
 
     for(int x = 0; x < INODE_NUM; x++){
-//        printf("hello there\n");
-//        printf("current value is: %d\n", x);
         inode* this_one = get_inode(x);
         if(this_one == NULL){
             where_to_alloc = x;
             break;
         }
 
-//        printf()
     }
 
     inode* new_one = new inode();
@@ -111,25 +108,9 @@ block_layer::alloc_block() {
 
     int first_data_block = IBLOCK(1023, sb.nblocks) + 1;
 
-
-//
-//    printf("HELLO THERE LOOK AT HIS NUMBER: %d\n", first_data_block);
-//
-//
-//    printf("CALLING ALLOC BLOCK\n");
-//
-//    printf("first_data_block value is: %d\n", first_data_block);
-//    printf("sb.nblocks value is: %d\n", sb.nblocks);
-
-
-
     for(int id=first_data_block; id<BLOCK_NUM; id++){
 
-//        printf("WITHIN THE FOR LOOP\n");
-
         char buf[BLOCK_SIZE];
-
-
         d->read_block(BBLOCK(id), buf);
 
         uint32_t bit_offset_in_block = id % BPB;
@@ -137,7 +118,6 @@ block_layer::alloc_block() {
         uint32_t bit_offset_in_byte = bit_offset_in_block % 8;
 
         char* byte = &((char*)buf)[byte_offset_in_block];
-
 
         if(*byte & ((char)1 << bit_offset_in_byte)){
             continue;
@@ -209,8 +189,6 @@ inode_layer::read_file(uint32_t inum, char **buf_out, int *size)
     }
 
 
-//    printf("INODE NUMBER IS: %d\n", inum);
-
     /* modify the access time of inode inum */
     ino->atime = time(NULL);
     put_inode(inum, ino);
@@ -223,7 +201,6 @@ inode_layer::read_file(uint32_t inum, char **buf_out, int *size)
      * Your Part I code goes here.
      * hint1: read all blocks of inode inum into buf_out, including direct and indirect blocks; you will need the memcpy function
      */
-
 
     int remaining_bytes_to_be_read = *size;
     int num_bytes_already_read = 0;
@@ -243,9 +220,6 @@ inode_layer::read_file(uint32_t inum, char **buf_out, int *size)
             bm->read_block(ino->blocks[index], full_direct_buffer);
             memcpy(buf + (index * BLOCK_SIZE), full_direct_buffer, MIN(BLOCK_SIZE, remaining_bytes_to_be_read));
 
-
-
-
         } else {
             // INDIRECT SECTION
             char full_indirect_buffer[512];
@@ -253,7 +227,6 @@ inode_layer::read_file(uint32_t inum, char **buf_out, int *size)
             memcpy(buf + (index * BLOCK_SIZE), full_indirect_buffer, MIN(BLOCK_SIZE, remaining_bytes_to_be_read));
 
             indirect_index += 1;
-
 
         }
 
@@ -266,8 +239,6 @@ inode_layer::read_file(uint32_t inum, char **buf_out, int *size)
     *buf_out = buf;
     free(ino);
     rwlocks[inum].reader_exit();
-
-
 }
 
 void
@@ -297,44 +268,24 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
      * You need to consider the situation when "size" parameter is larger or smaller than the current size of inode inum
      */
 
-// TODO:
-// TODO:
-// TODO:
-// TODO:
-//    FREEING ALL THE BLOCKS
+
+//    FREEING ALL THE DIRECT BLOCKS
     for(int x = 0; x < 8; x++){
         bm->free_block(ino->blocks[x]);
     }
-//    char indirect_block[512];
-//    bm->read_block(ino->blocks[8], indirect_block);
-//    int *ptr = (int*)indirect_block;
-//    for(int x; x < 128; x++){
-//        bm->free_block(ptr[x]);
-//    }
-
-//    bm->free_block(ino->blocks[8]);
-
-//    DONE FREEING ALL THE BLOCKS
-
-//    printf("FINISHED FREEING ALL THE BLOCKS\n");
 
     int remaining_bytes_to_write = size;
     int num_bytes_already_written = 0;
     bool need_to_overwrite_indirect = false;
 
-
-
     char final_indirect_block[512];
-
-
-    int index = 0;
-    int indirect_index = 0;
-
 
     int old_inode_size = ino->size;
 
     bool already_allocated_indirect = false;
 
+    int index = 0;
+    int indirect_index = 0;
     while (remaining_bytes_to_write > 0){
 
         if(num_bytes_already_written < (8 * BLOCK_SIZE)){
@@ -347,12 +298,9 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
             ino->blocks[index] = block_id;
             bm->write_block(block_id, direct_buffer);
 
-
-
         } else {
             // in the indirect section
             need_to_overwrite_indirect = true;
-
 
             if (size >= old_inode_size){
                 // we are in the indirect section already, has ino->blocks[8] been made?
@@ -373,14 +321,9 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
                     bm->write_block(block_id, indirect_buffer);
                     memcpy(final_indirect_block + (indirect_index * sizeof(uint32_t)), &block_id, sizeof(uint32_t));
 
-
-
-
-
                 } else {
                     // there is an indirect section
                     // just replace the block
-
 
                     if(num_bytes_already_written >= old_inode_size){
                         char indirect_buffer[512];
@@ -389,8 +332,6 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
                         int block_id = bm->alloc_block();
                         bm->write_block(block_id, indirect_buffer);
                         memcpy(final_indirect_block + (indirect_index * sizeof(uint32_t)), &block_id, sizeof(uint32_t));
-
-
 
                     } else{
 
@@ -412,17 +353,14 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
 
             } else {
 
-
                 char indirect_block[512];
                 bm->read_block(ino->blocks[8], indirect_block);
                 int *ptr = (int*)indirect_block;
-
 
                 char temp_buffer[512];
                 memcpy(temp_buffer, buf + (index * BLOCK_SIZE), MIN(BLOCK_SIZE, remaining_bytes_to_write));
                 bm->write_block(ptr[indirect_index], temp_buffer);
                 memcpy(final_indirect_block + (indirect_index * sizeof(uint32_t)), &ptr[indirect_index], sizeof(uint32_t));
-
 
             }
 
@@ -440,8 +378,6 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
         char indirect_block[512];
         bm->read_block(ino->blocks[8], indirect_block);
         int *ptr = (int *) indirect_block;
-
-
         int number_to_free = (old_inode_size - size);
 
         while (number_to_free > 0) {
@@ -468,8 +404,6 @@ inode_layer::write_file(uint32_t inum, const char *buf, int size)
     free(ino);
 
     rwlocks[inum].writer_exit();
-
-
 }
 
 
@@ -486,7 +420,6 @@ inode_layer::free_inode(uint32_t inum)
      */
 
     /* Your Part I code ends here. */
-
 
     struct inode* ino = get_inode(inum);
     ino->type = 0;
@@ -532,13 +465,9 @@ inode_layer::remove_file(uint32_t inum)
 
         bm->free_block(ino->blocks[8]);
 
-
-
     }
 
-
     inode_layer::free_inode(inum);
-
 
     /* Your Part I code ends here. */
     free(ino);
